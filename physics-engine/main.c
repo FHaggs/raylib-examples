@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <math.h>
 
+#define MAX_BALLS 10
+
 // Constants
 static const int screenWidth  = 1200;
 static const int screenHeight = 1200;
@@ -20,14 +22,19 @@ typedef struct Ball {
     Vector2 velocity;
     float radius;
     Color color;
+    bool is_draggin;
 } Ball;
 
-// Global state
-static Ball ball;
-static bool isDragging = false;
-static Vector2 mouseLast = { 0 };
-static float dragLastTime = 0.0f;
 
+typedef struct {
+    Ball balls[MAX_BALLS];
+    int count;
+    int selected_ball;
+    Vector2 mouse_last;
+    float drag_last_time;
+} GameState;
+
+static GameState game_state;
 
 // Function declarations
 static void InitGame(void);
@@ -61,80 +68,94 @@ int main(void)
 
 void InitGame(void)
 {
-    ball.position = (Vector2){ screenWidth / 2.0f, screenHeight / 2.0f };
-    ball.velocity = (Vector2){ 0.0f, 0.0f };
-    ball.radius = 20.0f;
-    ball.color = BLUE;
+
+    Color colors[8] = {BLUE, RED, YELLOW, BROWN, BEIGE, PURPLE, PINK, GREEN};
+    game_state.count = 10;
+    game_state.selected_ball = -1;
+    for (int i=0;i<game_state.count;i++){
+        int random = GetRandomValue(0, 6);
+        game_state.balls[i].is_draggin = false;
+        game_state.balls[i].color = colors[random];
+        game_state.balls[i].position = (Vector2){300 + i*50, 300};
+        game_state.balls[i].velocity = (Vector2){ 0 };
+
+        game_state.balls[i].radius = 20;
+    }
 }
 
 void UpdateGame(void)
 {
     float dt = GetFrameTime();
     Vector2 mouse = GetMousePosition();
+    for (int i=0;i<game_state.count;i++){
+        Ball* ball = &game_state.balls[i];
+        
+        // Mouse press inside the ball
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseInsideBall(mouse, *ball)) {
+            ball->is_draggin = true;
+            ball->velocity = (Vector2){ 0 };
+            game_state.drag_last_time = GetTime();
+            game_state.mouse_last = mouse;
+        }
 
-    // Mouse press inside the ball
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsMouseInsideBall(mouse, ball)) {
-        isDragging = true;
-        ball.velocity = (Vector2){ 0 };
-        dragLastTime = GetTime();
-        mouseLast = mouse;
+        // Mouse drag
+        if (ball->is_draggin && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+            ball->position = mouse;
+        }
+
+        // Mouse release
+        if (ball->is_draggin && IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+            float now = GetTime();
+            float elapsed = now - game_state.drag_last_time;
+
+            if (elapsed > 0) {
+                ball->velocity.x = (mouse.x - game_state.mouse_last.x) / elapsed;
+                ball->velocity.y = (mouse.y - game_state.mouse_last.y) / elapsed;
+            }
+
+            ball->is_draggin = false;
+        }
+
+        if (!ball->is_draggin)
+        {
+            // Apply gravity
+            ball->velocity.y += gravity * dt;
+
+            // Apply user input forces
+            if (IsKeyDown(KEY_RIGHT)) ball->velocity.x += forceAmount * dt;
+            if (IsKeyDown(KEY_LEFT))  ball->velocity.x -= forceAmount * dt;
+            if (IsKeyDown(KEY_UP))    ball->velocity.y -= forceAmount * dt;
+            if (IsKeyDown(KEY_DOWN))  ball->velocity.y += forceAmount * dt;
+
+            // Update position
+            ball->position.x += ball->velocity.x * dt;
+            ball->position.y += ball->velocity.y * dt;
+
+            // Collision with window edges
+            if (ball->position.x - ball->radius <= 0) {
+                ball->position.x = ball->radius;
+                ball->velocity.x *= -restitution;
+            }
+            if (ball->position.x + ball->radius >= screenWidth) {
+                ball->position.x = screenWidth - ball->radius;
+                ball->velocity.x *= -restitution;
+            }
+            if (ball->position.y - ball->radius <= 0) {
+                ball->position.y = ball->radius;
+                ball->velocity.y *= -restitution;
+            }
+            if (ball->position.y + ball->radius >= screenHeight) {
+                ball->position.y = screenHeight - ball->radius;
+                ball->velocity.y *= -restitution;
+            }
+
+            // Damping
+            ball->velocity.x *= damping;
+            ball->velocity.y *= damping;
+        }
+
     }
 
-    // Mouse drag
-    if (isDragging && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-        ball.position = mouse;
-    }
-
-    // Mouse release
-    if (isDragging && IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
-        float now = GetTime();
-        float elapsed = now - dragLastTime;
-
-        if (elapsed > 0) {
-            ball.velocity.x = (mouse.x - mouseLast.x) / elapsed;
-            ball.velocity.y = (mouse.y - mouseLast.y) / elapsed;
-        }
-
-        isDragging = false;
-    }
-
-    if (!isDragging)
-    {
-        // Apply gravity
-        ball.velocity.y += gravity * dt;
-
-        // Apply user input forces
-        if (IsKeyDown(KEY_RIGHT)) ball.velocity.x += forceAmount * dt;
-        if (IsKeyDown(KEY_LEFT))  ball.velocity.x -= forceAmount * dt;
-        if (IsKeyDown(KEY_UP))    ball.velocity.y -= forceAmount * dt;
-        if (IsKeyDown(KEY_DOWN))  ball.velocity.y += forceAmount * dt;
-
-        // Update position
-        ball.position.x += ball.velocity.x * dt;
-        ball.position.y += ball.velocity.y * dt;
-
-        // Collision with window edges
-        if (ball.position.x - ball.radius <= 0) {
-            ball.position.x = ball.radius;
-            ball.velocity.x *= -restitution;
-        }
-        if (ball.position.x + ball.radius >= screenWidth) {
-            ball.position.x = screenWidth - ball.radius;
-            ball.velocity.x *= -restitution;
-        }
-        if (ball.position.y - ball.radius <= 0) {
-            ball.position.y = ball.radius;
-            ball.velocity.y *= -restitution;
-        }
-        if (ball.position.y + ball.radius >= screenHeight) {
-            ball.position.y = screenHeight - ball.radius;
-            ball.velocity.y *= -restitution;
-        }
-
-        // Damping
-        ball.velocity.x *= damping;
-        ball.velocity.y *= damping;
-    }
 }
 
 
@@ -144,7 +165,10 @@ void DrawGame(void)
     ClearBackground(RAYWHITE);
 
     Draw2DGrid();
-    DrawCircleV(ball.position, ball.radius, ball.color);
+    for (int i = 0; i < game_state.count; i++) {
+        Ball* ball = &game_state.balls[i];
+        DrawCircleV(ball->position, ball->radius, ball->color);
+    }
 
     EndDrawing();
 }
